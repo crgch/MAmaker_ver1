@@ -107,7 +107,7 @@
   <header>
     <div class="logo">〽</div>
     <div class="head-copy">
-      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v6 · 런닝 라인 추가 · 양끝 10% 기본선</small></h1>
+      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v7 · 상향 주파수 추가 · 끝선 자연화</small></h1>
       <div class="sub">썸네일·가사 없이 배경 + 선형 가로 이퀄라이저 + 선택 제목으로 만드는 16:9 뮤직비디오</div>
     </div>
     <span class="badge">INSTRUMENTAL MODE</span>
@@ -236,6 +236,7 @@
                 <option value="needles">6. 바늘 파형 · 가는 스파이크</option>
                 <option value="pulse">7. 중앙 펄스 · 심박형</option>
                 <option value="treadmill">8. 런닝 라인 · 위로만 흐름</option>
+                <option value="frequencyUp">9. 상향 주파수 · 위로만 반응</option>
               </select>
             </div>
             <div class="field">
@@ -412,7 +413,7 @@
   let eqTreadmillHistory=[];
   let eqTreadmillLastTime=-1;
   const EQ_MAX_FILL=0.90; // 이퀄라이저가 설정 높이의 90%를 넘지 않도록 고정
-  const EQ_EDGE_BASELINE=0.10; // 모든 디자인의 좌우 10%는 움직이지 않는 기본선
+  const EQ_EDGE_QUIET=0.10; // 좌우 10%는 움직임을 비우되, 공통 중앙선은 강제로 그리지 않음
 
   const QUALITY={
     '720_60':{w:1280,h:720,fps:60,vbps:12000000,abps:192000,label:'720p 60fps'},
@@ -782,23 +783,23 @@
 
     const amplitudeAt=i=>{
       const position=i/Math.max(1,count-1);
-      if(position<=EQ_EDGE_BASELINE || position>=1-EQ_EDGE_BASELINE)return 0;
+      const edgeDistance=Math.min(position,1-position);
+      if(edgeDistance<=EQ_EDGE_QUIET)return 0;
+      // 움직이는 구간이 갑자기 시작되지 않도록 가장자리 안쪽 5%에서 부드럽게 올라옵니다.
+      const edgeFade=clamp((edgeDistance-EQ_EDGE_QUIET)/.05,0,1);
       const mirrored=i<half?half-1-i:i-half;
       const normalized=mirrored/Math.max(1,half-1);
       const centerWeight=Math.pow(1-normalized,.42);
       const v=bands[clamp(mirrored,0,half-1)]||0;
       const movement=clamp(v*(.28+.72*centerWeight),0,EQ_MAX_FILL*.84);
-      // 실제 주파수 차이만 남기고, 조용할 때는 확실히 기본선으로 돌아오게 합니다.
-      return clamp(movement,0,EQ_MAX_FILL*.84);
+      // 실제 주파수 차이만 남기고, 조용할 때는 확실히 바닥으로 돌아옵니다.
+      return clamp(movement*edgeFade,0,EQ_MAX_FILL*.84);
     };
 
     const drawBaseline=(alpha=.40,lineWidth=Math.max(1,thick*.30))=>{
       ctx.save();ctx.globalAlpha=alpha;ctx.lineWidth=lineWidth;
       ctx.beginPath();ctx.moveTo(cx-width/2,cy);ctx.lineTo(cx+width/2,cy);ctx.stroke();ctx.restore();
     };
-
-    // 어떤 디자인을 골라도 좌우 끝 10%는 반드시 가느다란 기본선으로 남깁니다.
-    drawBaseline(.38,Math.max(1,thick*.24));
 
     if(style==='line'){
       ctx.lineWidth=Math.max(1.4,thick*.58);
@@ -856,11 +857,12 @@
       }
       ctx.globalAlpha=1;
     }else if(style==='treadmill'){
-      // 오른쪽에서 새 음량이 들어오고 왼쪽으로 흘러가는, 위쪽 전용 런닝 라인
-      const innerStart=cx-width/2+width*EQ_EDGE_BASELINE;
-      const innerEnd=cx+width/2-width*EQ_EDGE_BASELINE;
+      // 오른쪽에서 새 음량이 들어오고 왼쪽으로 흐르는 위쪽 전용 런닝 라인.
+      // 좌우 끝에 별도의 긴 중앙선을 붙이지 않고, 파형 자체가 자연스럽게 바닥으로 접힙니다.
+      const innerStart=cx-width/2+width*EQ_EDGE_QUIET;
+      const innerEnd=cx+width/2-width*EQ_EDGE_QUIET;
       const innerWidth=innerEnd-innerStart;
-      const historyCount=Math.max(24,Math.round(count*(1-EQ_EDGE_BASELINE*2)));
+      const historyCount=Math.max(24,Math.round(count*(1-EQ_EDGE_QUIET*2)));
       const now=staticFrame?0:(audio.currentTime||0);
       const sampleInterval=.034;
       if(staticFrame){
@@ -881,17 +883,29 @@
       const history=new Array(Math.max(0,historyCount-eqTreadmillHistory.length)).fill(0).concat(eqTreadmillHistory).slice(-historyCount);
       ctx.lineWidth=Math.max(1.5,thick*.54);
       ctx.beginPath();
-      ctx.moveTo(cx-width/2,cy);
-      ctx.lineTo(innerStart,cy);
       for(let i=0;i<historyCount;i++){
-        const x=innerStart+(i/Math.max(1,historyCount-1))*innerWidth;
-        const level=history[i]||0;
+        const p=i/Math.max(1,historyCount-1);
+        const x=innerStart+p*innerWidth;
+        const taper=clamp(Math.min(p,1-p)/.055,0,1);
+        const level=(history[i]||0)*taper;
         const y=cy-level*maxH*.92;
-        ctx.lineTo(x,y);
+        if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
       }
-      ctx.lineTo(innerEnd,cy);
-      ctx.lineTo(cx+width/2,cy);
       ctx.stroke();
+    }else if(style==='frequencyUp'){
+      // 실시간 주파수 막대가 가운데 바닥에서 위쪽으로만 커졌다 작아지는 디자인
+      const barW=Math.max(1.8,Math.min(step*.68,thick*1.05));
+      const baseH=Math.max(1.2,thick*.20);
+      for(let i=0;i<count;i++){
+        const position=i/Math.max(1,count-1);
+        if(position<=EQ_EDGE_QUIET || position>=1-EQ_EDGE_QUIET)continue;
+        const x=cx-width/2+i*step;
+        const a=amplitudeAt(i);
+        const h=baseH+a*maxH*.94;
+        ctx.globalAlpha=.82+.18*Math.min(1,a+.2);
+        fillRoundRect(x-barW/2,cy-h,barW,h,Math.min(barW/2,baseH));
+      }
+      ctx.globalAlpha=1;
     }else if(style==='pulse'){
 
       ctx.lineWidth=Math.max(1.4,thick*.50);
