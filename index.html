@@ -107,7 +107,7 @@
   <header>
     <div class="logo">〽</div>
     <div class="head-copy">
-      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v7 · 상향 주파수 추가 · 끝선 자연화</small></h1>
+      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v8 · 진폭 배율 300% · 90% 제한 제거</small></h1>
       <div class="sub">썸네일·가사 없이 배경 + 선형 가로 이퀄라이저 + 선택 제목으로 만드는 16:9 뮤직비디오</div>
     </div>
     <span class="badge">INSTRUMENTAL MODE</span>
@@ -251,8 +251,12 @@
               <input type="range" id="eqWidth" min="15" max="92" value="46">
             </div>
             <div class="range-box">
-              <div class="range-head"><span class="lbl">반응 높이</span><span class="value" id="eqHeightValue">54px</span></div>
+              <div class="range-head"><span class="lbl">기본 반응 높이</span><span class="value" id="eqHeightValue">54px</span></div>
               <input type="range" id="eqHeight" min="4" max="180" value="54">
+            </div>
+            <div class="range-box">
+              <div class="range-head"><span class="lbl">진폭 배율</span><span class="value" id="eqAmplitudeValue">100%</span></div>
+              <input type="range" id="eqAmplitude" min="0" max="300" value="100">
             </div>
             <div class="range-box">
               <div class="range-head"><span class="lbl">점·선 굵기</span><span class="value" id="eqThicknessValue">5px</span></div>
@@ -287,7 +291,7 @@
               <input type="range" id="eqGlow" min="0" max="40" value="8">
             </div>
           </div>
-          <div class="helper">곡의 실제 볼륨을 자동 추적합니다. 작은 구간에서는 기본선에 가깝게 내려오고, 큰 소리·비트에서만 크게 솟습니다. 움직임 대비를 높이면 강약 차이가 커지고, 복귀 속도를 높이면 작은 구간에서 더 빨리 선으로 돌아옵니다. 실제 출력 높이는 설정값의 최대 90%로 제한됩니다.</div>
+          <div class="helper">곡의 실제 볼륨을 자동 추적합니다. 작은 구간에서는 기본선에 가깝게 내려오고, 큰 소리·비트에서만 크게 솟습니다. <b>진폭 배율</b>은 분석값을 억지로 90%에서 자르지 않고 최종 출력만 0~300%까지 넓혀요. 기본 반응 높이를 기준으로 100%는 원래 크기, 300%는 최대 3배입니다.</div>
         </div>
       </section>
     </div>
@@ -412,7 +416,8 @@
   let eqLastFrameLevel=0;
   let eqTreadmillHistory=[];
   let eqTreadmillLastTime=-1;
-  const EQ_MAX_FILL=0.90; // 이퀄라이저가 설정 높이의 90%를 넘지 않도록 고정
+  const EQ_NORMALIZED_MAX=1.0; // 오디오 분석값은 0~1로만 정규화
+  const EQ_RENDER_MAX=3.0; // 최종 진폭 배율은 최대 300%
   const EQ_EDGE_QUIET=0.10; // 좌우 10%는 움직임을 비우되, 공통 중앙선은 강제로 그리지 않음
 
   const QUALITY={
@@ -424,7 +429,7 @@
 
   const defaults={
     bgMode:'color',bgColor:'#151515',vignette:18,bgFit:'cover',bgDim:0,bgZoom:100,bgBlur:0,bgX:0,bgY:0,
-    eqEnabled:true,eqStyle:'dots',eqColor:'#ffffff',eqWidth:46,eqHeight:28,eqThickness:4,eqSensitivity:62,eqContrast:76,eqReturn:78,eqX:50,eqY:58,eqCount:112,eqGlow:6,
+    eqEnabled:true,eqStyle:'dots',eqColor:'#ffffff',eqWidth:46,eqHeight:28,eqAmplitude:100,eqThickness:4,eqSensitivity:62,eqContrast:76,eqReturn:78,eqX:50,eqY:58,eqCount:112,eqGlow:6,
     titleEnabled:true,titleText:'essential;',titleFont:'sans',titleColor:'#ffffff',titleSize:190,titleSpacing:-3,titleX:50,titleY:42,titleShadow:18,titleWeight:800,
     showTitleGuide:true
   };
@@ -458,7 +463,7 @@
   function updateValueLabels(){
     const pairs={
       vignette:['vignetteValue','%'],bgDim:['dimValue','%'],bgZoom:['zoomValue','%'],bgBlur:['blurValue','px'],bgX:['bgXValue',''],bgY:['bgYValue',''],
-      eqWidth:['eqWidthValue','%'],eqHeight:['eqHeightValue','px'],eqThickness:['eqThicknessValue','px'],eqSensitivity:['eqSensitivityValue','%'],eqContrast:['eqContrastValue','%'],eqReturn:['eqReturnValue','%'],eqX:['eqXValue','%'],eqY:['eqYValue','%'],eqCount:['eqCountValue',''],eqGlow:['eqGlowValue','px'],
+      eqWidth:['eqWidthValue','%'],eqHeight:['eqHeightValue','px'],eqAmplitude:['eqAmplitudeValue','%'],eqThickness:['eqThicknessValue','px'],eqSensitivity:['eqSensitivityValue','%'],eqContrast:['eqContrastValue','%'],eqReturn:['eqReturnValue','%'],eqX:['eqXValue','%'],eqY:['eqYValue','%'],eqCount:['eqCountValue',''],eqGlow:['eqGlowValue','px'],
       titleSize:['titleSizeValue','px'],titleSpacing:['titleSpacingValue','px'],titleX:['titleXValue','%'],titleY:['titleYValue','%'],titleShadow:['titleShadowValue','px'],titleWeight:['titleWeightValue','']
     };
     Object.entries(pairs).forEach(([input,[label,suffix]])=>{$(label).textContent=`${$(input).value}${suffix}`});
@@ -581,7 +586,7 @@
   $('titleText').addEventListener('compositionstart',()=>titleComposing=true);
   $('titleText').addEventListener('compositionend',()=>{titleComposing=false;drawStatic()});
 
-  const liveIds=['bgColor','vignette','bgFit','bgDim','bgZoom','bgBlur','bgX','bgY','eqStyle','eqColor','eqWidth','eqHeight','eqThickness','eqSensitivity','eqContrast','eqReturn','eqX','eqY','eqCount','eqGlow','titleText','titleFont','titleColor','titleSize','titleSpacing','titleX','titleY','titleShadow','titleWeight'];
+  const liveIds=['bgColor','vignette','bgFit','bgDim','bgZoom','bgBlur','bgX','bgY','eqStyle','eqColor','eqWidth','eqHeight','eqAmplitude','eqThickness','eqSensitivity','eqContrast','eqReturn','eqX','eqY','eqCount','eqGlow','titleText','titleFont','titleColor','titleSize','titleSpacing','titleX','titleY','titleShadow','titleWeight'];
   liveIds.forEach(id=>{
     $(id).addEventListener('input',e=>{if(id==='titleText'&&(titleComposing||e.isComposing))return;updateValueLabels();if(!playing)drawStatic()});
     $(id).addEventListener('change',()=>{updateValueLabels();if(!playing)drawStatic()});
@@ -739,7 +744,7 @@
     const transient=clamp(rise*(18+contrast*30),0,1);
     eqTransientEnvelope+=(transient-eqTransientEnvelope)*(transient>eqTransientEnvelope?.72:.22);
     eqPrevRawLevel=raw;
-    eqLastFrameLevel=clamp(eqLevelEnvelope*.86+eqTransientEnvelope*.30,0,EQ_MAX_FILL);
+    eqLastFrameLevel=clamp(eqLevelEnvelope*.86+eqTransientEnvelope*.30,0,EQ_NORMALIZED_MAX);
     return eqLastFrameLevel;
   }
 
@@ -755,12 +760,12 @@
       const shaped=clamp((raw-threshold)/(0.52-threshold),0,1);
       const detailed=Math.pow(shaped,1.42-sensitivity*.42);
       const gate=Math.pow(globalLevel,1.28);
-      const target=staticFrame?0:clamp(detailed*gate*.98,0,EQ_MAX_FILL*.88);
+      const target=staticFrame?0:clamp(detailed*gate*.98,0,EQ_NORMALIZED_MAX);
       const attack=.40+sensitivity*.28;
       const release=.035+returnSpeed*.34;
       smoothBands[i]+=(target-smoothBands[i])*(target>smoothBands[i]?attack:release);
       if(smoothBands[i]<.006)smoothBands[i]=0;
-      values.push(staticFrame?0:clamp(smoothBands[i],0,EQ_MAX_FILL));
+      values.push(staticFrame?0:clamp(smoothBands[i],0,EQ_NORMALIZED_MAX));
     }
     return values;
   }
@@ -770,6 +775,7 @@
     if(!eqEnabled)return;
     const style=val('eqStyle'),color=val('eqColor');
     const width=num('eqWidth')/100*W,maxH=num('eqHeight')*(H/1080),thick=num('eqThickness')*(H/1080);
+    const amplitudeScale=clamp(num('eqAmplitude')/100,0,EQ_RENDER_MAX);
     const cx=num('eqX')/100*W,cy=num('eqY')/100*H;
     const requested=Math.max(20,Math.round(num('eqCount')/2)*2);
     const styleCount=style==='blocks'?Math.min(requested,110):(style==='needles'?Math.min(requested,180):requested);
@@ -791,9 +797,9 @@
       const normalized=mirrored/Math.max(1,half-1);
       const centerWeight=Math.pow(1-normalized,.42);
       const v=bands[clamp(mirrored,0,half-1)]||0;
-      const movement=clamp(v*(.28+.72*centerWeight),0,EQ_MAX_FILL*.84);
-      // 실제 주파수 차이만 남기고, 조용할 때는 확실히 바닥으로 돌아옵니다.
-      return clamp(movement*edgeFade,0,EQ_MAX_FILL*.84);
+      const movement=clamp(v*(.28+.72*centerWeight),0,EQ_NORMALIZED_MAX);
+      // 분석값은 0~1로 유지하고, 마지막 단계에서 사용자가 정한 0~300% 진폭만 곱합니다.
+      return clamp(movement*edgeFade*amplitudeScale,0,EQ_RENDER_MAX);
     };
 
     const drawBaseline=(alpha=.40,lineWidth=Math.max(1,thick*.30))=>{
@@ -851,7 +857,7 @@
       ctx.lineWidth=Math.max(1,thick*.24);
       for(let i=0;i<count;i++){
         const x=cx-width/2+i*step,a=amplitudeAt(i);
-        const h=Math.min(EQ_MAX_FILL*maxH,a*maxH*(1.15+(i%5===0?.32:0)));
+        const h=Math.min(EQ_RENDER_MAX*maxH,a*maxH*(1.15+(i%5===0?.32:0)));
         ctx.globalAlpha=.35+a*.65;
         ctx.beginPath();ctx.moveTo(x,cy-h);ctx.lineTo(x,cy+h);ctx.stroke();
       }
@@ -874,7 +880,7 @@
           eqTreadmillLastTime=now;
         }
         while(now-eqTreadmillLastTime>=sampleInterval){
-          const sample=clamp((globalLevel*.80+eqTransientEnvelope*.10),0,EQ_MAX_FILL*.86);
+          const sample=clamp((globalLevel*.80+eqTransientEnvelope*.10),0,EQ_NORMALIZED_MAX);
           eqTreadmillHistory.push(sample);
           if(eqTreadmillHistory.length>historyCount)eqTreadmillHistory.shift();
           eqTreadmillLastTime+=sampleInterval;
@@ -888,7 +894,7 @@
         const x=innerStart+p*innerWidth;
         const taper=clamp(Math.min(p,1-p)/.055,0,1);
         const level=(history[i]||0)*taper;
-        const y=cy-level*maxH*.92;
+        const y=cy-level*maxH*.92*amplitudeScale;
         if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
       }
       ctx.stroke();
@@ -914,7 +920,7 @@
         const x=cx-width/2+i*step;
         const centered=Math.abs((i/(count-1))-.5)*2;
         const centerMask=Math.pow(1-centered,2.9);
-        const a=clamp(amplitudeAt(i)*(.18+centerMask*1.35),0,EQ_MAX_FILL);
+        const a=clamp(amplitudeAt(i)*(.18+centerMask*1.35),0,EQ_RENDER_MAX);
         const heartbeat=Math.sin(i*.72+(audio.currentTime||0)*11.5);
         const y=cy-heartbeat*a*maxH*.90;
         if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
@@ -936,7 +942,8 @@
       ctx.globalAlpha=1;
     }
     ctx.restore();
-    eqBounds={left:cx-width/2-20,right:cx+width/2+20,top:cy-maxH-25,bottom:cy+maxH+25,width,height:maxH*2+50};
+    const boundAmp=Math.max(1,amplitudeScale);
+    eqBounds={left:cx-width/2-20,right:cx+width/2+20,top:cy-maxH*boundAmp-25,bottom:cy+maxH*boundAmp+25,width,height:maxH*boundAmp*2+50};
   }
 
   function drawGuides(){
