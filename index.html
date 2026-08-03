@@ -107,7 +107,7 @@
   <header>
     <div class="logo">〽</div>
     <div class="head-copy">
-      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v5 · 선형 세그먼트 보강 · 최대 90%</small></h1>
+      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v6 · 런닝 라인 추가 · 양끝 10% 기본선</small></h1>
       <div class="sub">썸네일·가사 없이 배경 + 선형 가로 이퀄라이저 + 선택 제목으로 만드는 16:9 뮤직비디오</div>
     </div>
     <span class="badge">INSTRUMENTAL MODE</span>
@@ -235,6 +235,7 @@
                 <option value="blocks">5. 블록 스펙트럼 · 각진 칸</option>
                 <option value="needles">6. 바늘 파형 · 가는 스파이크</option>
                 <option value="pulse">7. 중앙 펄스 · 심박형</option>
+                <option value="treadmill">8. 런닝 라인 · 위로만 흐름</option>
               </select>
             </div>
             <div class="field">
@@ -408,7 +409,10 @@
   let eqTransientEnvelope=0;
   let eqPrevRawLevel=0;
   let eqLastFrameLevel=0;
+  let eqTreadmillHistory=[];
+  let eqTreadmillLastTime=-1;
   const EQ_MAX_FILL=0.90; // 이퀄라이저가 설정 높이의 90%를 넘지 않도록 고정
+  const EQ_EDGE_BASELINE=0.10; // 모든 디자인의 좌우 10%는 움직이지 않는 기본선
 
   const QUALITY={
     '720_60':{w:1280,h:720,fps:60,vbps:12000000,abps:192000,label:'720p 60fps'},
@@ -691,6 +695,8 @@
     eqTransientEnvelope=0;
     eqPrevRawLevel=0;
     eqLastFrameLevel=0;
+    eqTreadmillHistory=[];
+    eqTreadmillLastTime=-1;
   }
 
   function updateEqualizerLevel(staticFrame){
@@ -775,6 +781,8 @@
     if(glow>0){ctx.shadowColor=color;ctx.shadowBlur=glow}
 
     const amplitudeAt=i=>{
+      const position=i/Math.max(1,count-1);
+      if(position<=EQ_EDGE_BASELINE || position>=1-EQ_EDGE_BASELINE)return 0;
       const mirrored=i<half?half-1-i:i-half;
       const normalized=mirrored/Math.max(1,half-1);
       const centerWeight=Math.pow(1-normalized,.42);
@@ -789,6 +797,9 @@
       ctx.beginPath();ctx.moveTo(cx-width/2,cy);ctx.lineTo(cx+width/2,cy);ctx.stroke();ctx.restore();
     };
 
+    // 어떤 디자인을 골라도 좌우 끝 10%는 반드시 가느다란 기본선으로 남깁니다.
+    drawBaseline(.38,Math.max(1,thick*.24));
+
     if(style==='line'){
       ctx.lineWidth=Math.max(1.4,thick*.58);
       ctx.beginPath();
@@ -799,7 +810,7 @@
         const y=cy+phase*a*maxH*.58;
         if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
       }
-      ctx.stroke();drawBaseline(.26,Math.max(1,thick*.24));
+      ctx.stroke();
     }else if(style==='mirror'){
       ctx.lineWidth=Math.max(1.35,thick*.52);
       for(const dir of [-1,1]){
@@ -811,10 +822,11 @@
         }
         ctx.stroke();
       }
-      drawBaseline(.22,Math.max(1,thick*.22));
+
     }else if(style==='bars'){
       for(let i=0;i<count;i++){
         const x=cx-width/2+i*step,a=amplitudeAt(i);
+        if(a<=.001)continue;
         const h=Math.max(thick,a*maxH*2);
         ctx.lineWidth=Math.min(thick,Math.max(1.2,step*.66));
         ctx.beginPath();ctx.moveTo(x,cy-h/2);ctx.lineTo(x,cy+h/2);ctx.stroke();
@@ -824,7 +836,7 @@
       const unit=Math.max(3.5,thick*1.16),gap=Math.max(1.5,unit*.28);
       for(let i=0;i<count;i++){
         const x=cx-width/2+i*step,a=amplitudeAt(i);
-        ctx.globalAlpha=.45;ctx.fillRect(x-blockW/2,cy-thick*.34,blockW,thick*.68);ctx.globalAlpha=1;
+        if(a<=.001)continue;
         const stacks=Math.floor((a*maxH)/(unit+gap));
         for(let s=1;s<=stacks;s++){
           const alpha=.48+.52*(1-s/(stacks+1));ctx.globalAlpha=alpha;
@@ -834,7 +846,7 @@
       }
       ctx.globalAlpha=1;
     }else if(style==='needles'){
-      drawBaseline(.30,Math.max(1,thick*.20));
+
       ctx.lineWidth=Math.max(1,thick*.24);
       for(let i=0;i<count;i++){
         const x=cx-width/2+i*step,a=amplitudeAt(i);
@@ -843,8 +855,45 @@
         ctx.beginPath();ctx.moveTo(x,cy-h);ctx.lineTo(x,cy+h);ctx.stroke();
       }
       ctx.globalAlpha=1;
+    }else if(style==='treadmill'){
+      // 오른쪽에서 새 음량이 들어오고 왼쪽으로 흘러가는, 위쪽 전용 런닝 라인
+      const innerStart=cx-width/2+width*EQ_EDGE_BASELINE;
+      const innerEnd=cx+width/2-width*EQ_EDGE_BASELINE;
+      const innerWidth=innerEnd-innerStart;
+      const historyCount=Math.max(24,Math.round(count*(1-EQ_EDGE_BASELINE*2)));
+      const now=staticFrame?0:(audio.currentTime||0);
+      const sampleInterval=.034;
+      if(staticFrame){
+        eqTreadmillHistory=[];
+        eqTreadmillLastTime=-1;
+      }else{
+        if(eqTreadmillLastTime<0 || now<eqTreadmillLastTime){
+          eqTreadmillHistory=new Array(historyCount).fill(0);
+          eqTreadmillLastTime=now;
+        }
+        while(now-eqTreadmillLastTime>=sampleInterval){
+          const sample=clamp((globalLevel*.80+eqTransientEnvelope*.10),0,EQ_MAX_FILL*.86);
+          eqTreadmillHistory.push(sample);
+          if(eqTreadmillHistory.length>historyCount)eqTreadmillHistory.shift();
+          eqTreadmillLastTime+=sampleInterval;
+        }
+      }
+      const history=new Array(Math.max(0,historyCount-eqTreadmillHistory.length)).fill(0).concat(eqTreadmillHistory).slice(-historyCount);
+      ctx.lineWidth=Math.max(1.5,thick*.54);
+      ctx.beginPath();
+      ctx.moveTo(cx-width/2,cy);
+      ctx.lineTo(innerStart,cy);
+      for(let i=0;i<historyCount;i++){
+        const x=innerStart+(i/Math.max(1,historyCount-1))*innerWidth;
+        const level=history[i]||0;
+        const y=cy-level*maxH*.92;
+        ctx.lineTo(x,y);
+      }
+      ctx.lineTo(innerEnd,cy);
+      ctx.lineTo(cx+width/2,cy);
+      ctx.stroke();
     }else if(style==='pulse'){
-      drawBaseline(.32,Math.max(1,thick*.24));
+
       ctx.lineWidth=Math.max(1.4,thick*.50);
       ctx.beginPath();
       for(let i=0;i<count;i++){
@@ -859,12 +908,13 @@
       ctx.stroke();
     }else{
       // 예시 이미지처럼 "얇은 선 위에서 부분부분만 움직이는" 세그먼트형 렌더링
-      drawBaseline(.18,Math.max(1,thick*.16));
+
       const barW=Math.max(2,Math.min(step*.82,thick*1.18));
       const baseH=Math.max(1.4,thick*.24);
       const segMax=maxH*.92;
       for(let i=0;i<count;i++){
         const x=cx-width/2+i*step,a=amplitudeAt(i);
+        if(a<=.001)continue;
         const h=baseH + a*segMax;
         ctx.globalAlpha=.86+.14*globalLevel;
         fillRoundRect(x-barW/2,cy-h/2,barW,h,Math.min(barW/2,h/2));
