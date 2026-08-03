@@ -107,8 +107,8 @@
   <header>
     <div class="logo">〽</div>
     <div class="head-copy">
-      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v4 · 이퀄라이저 7종 · 최대 90%</small></h1>
-      <div class="sub">썸네일·가사 없이 배경 + 가로 이퀄라이저 + 선택 제목으로 만드는 16:9 뮤직비디오</div>
+      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v5 · 선형 세그먼트 보강 · 최대 90%</small></h1>
+      <div class="sub">썸네일·가사 없이 배경 + 선형 가로 이퀄라이저 + 선택 제목으로 만드는 16:9 뮤직비디오</div>
     </div>
     <span class="badge">INSTRUMENTAL MODE</span>
   </header>
@@ -228,7 +228,7 @@
             <div class="field">
               <label class="lbl">이퀄라이저 디자인</label>
               <select id="eqStyle">
-                <option value="dots" selected>1. 점선 스택 · 예시 이미지형</option>
+                <option value="dots" selected>1. 선형 세그먼트 · 예시 이미지형</option>
                 <option value="bars">2. 둥근 막대 · 위아래 대칭</option>
                 <option value="line">3. 오디오 웨이브 · 한 줄</option>
                 <option value="mirror">4. 미러 웨이브 · 위아래 두 줄</option>
@@ -419,7 +419,7 @@
 
   const defaults={
     bgMode:'color',bgColor:'#151515',vignette:18,bgFit:'cover',bgDim:0,bgZoom:100,bgBlur:0,bgX:0,bgY:0,
-    eqEnabled:true,eqStyle:'dots',eqColor:'#ffffff',eqWidth:46,eqHeight:54,eqThickness:5,eqSensitivity:62,eqContrast:76,eqReturn:78,eqX:50,eqY:58,eqCount:150,eqGlow:8,
+    eqEnabled:true,eqStyle:'dots',eqColor:'#ffffff',eqWidth:46,eqHeight:28,eqThickness:4,eqSensitivity:62,eqContrast:76,eqReturn:78,eqX:50,eqY:58,eqCount:112,eqGlow:6,
     titleEnabled:true,titleText:'essential;',titleFont:'sans',titleColor:'#ffffff',titleSize:190,titleSpacing:-3,titleX:50,titleY:42,titleShadow:18,titleWeight:800,
     showTitleGuide:true
   };
@@ -437,6 +437,17 @@
   function rgba(hex,a){
     const h=String(hex||'#ffffff').replace('#','').padEnd(6,'f').slice(0,6);
     return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${a})`;
+  }
+  function fillRoundRect(x,y,w,h,r){
+    r=Math.max(0,Math.min(r,w/2,h/2));
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+    ctx.fill();
   }
 
   function updateValueLabels(){
@@ -736,9 +747,10 @@
       const threshold=.018+(1-sensitivity)*.035;
       const shaped=clamp((raw-threshold)/(0.52-threshold),0,1);
       const detailed=Math.pow(shaped,1.42-sensitivity*.42);
-      const target=staticFrame?0:clamp((detailed*.80+globalLevel*.20)*(.18+globalLevel*.82),0,EQ_MAX_FILL);
-      const attack=.44+sensitivity*.32;
-      const release=.06+returnSpeed*.52;
+      const gate=Math.pow(globalLevel,1.28);
+      const target=staticFrame?0:clamp(detailed*gate*.98,0,EQ_MAX_FILL*.88);
+      const attack=.40+sensitivity*.28;
+      const release=.035+returnSpeed*.34;
       smoothBands[i]+=(target-smoothBands[i])*(target>smoothBands[i]?attack:release);
       if(smoothBands[i]<.006)smoothBands[i]=0;
       values.push(staticFrame?0:clamp(smoothBands[i],0,EQ_MAX_FILL));
@@ -767,9 +779,9 @@
       const normalized=mirrored/Math.max(1,half-1);
       const centerWeight=Math.pow(1-normalized,.42);
       const v=bands[clamp(mirrored,0,half-1)]||0;
-      const movement=clamp(v*(.38+.92*centerWeight),0,EQ_MAX_FILL);
-      // 전체 볼륨이 작아지면 모든 디자인이 확실하게 기본선으로 돌아갑니다.
-      return clamp(movement*Math.pow(globalLevel,.46)*1.62,0,EQ_MAX_FILL);
+      const movement=clamp(v*(.28+.72*centerWeight),0,EQ_MAX_FILL*.84);
+      // 실제 주파수 차이만 남기고, 조용할 때는 확실히 기본선으로 돌아오게 합니다.
+      return clamp(movement,0,EQ_MAX_FILL*.84);
     };
 
     const drawBaseline=(alpha=.40,lineWidth=Math.max(1,thick*.30))=>{
@@ -846,18 +858,16 @@
       }
       ctx.stroke();
     }else{
-      const radius=Math.max(1.15,thick/2);
-      const dotGap=Math.max(radius*2.35,5*(H/1080));
+      // 예시 이미지처럼 "얇은 선 위에서 부분부분만 움직이는" 세그먼트형 렌더링
+      drawBaseline(.18,Math.max(1,thick*.16));
+      const barW=Math.max(2,Math.min(step*.82,thick*1.18));
+      const baseH=Math.max(1.4,thick*.24);
+      const segMax=maxH*.92;
       for(let i=0;i<count;i++){
         const x=cx-width/2+i*step,a=amplitudeAt(i);
-        ctx.globalAlpha=.74+.26*globalLevel;
-        ctx.beginPath();ctx.arc(x,cy,radius,0,Math.PI*2);ctx.fill();
-        const stacks=Math.floor((a*maxH)/dotGap);
-        for(let s=1;s<=stacks;s++){
-          const fade=1-s/(stacks+2);ctx.globalAlpha=.45+.55*fade;
-          ctx.beginPath();ctx.arc(x,cy-s*dotGap,radius,0,Math.PI*2);ctx.fill();
-          ctx.beginPath();ctx.arc(x,cy+s*dotGap,radius,0,Math.PI*2);ctx.fill();
-        }
+        const h=baseH + a*segMax;
+        ctx.globalAlpha=.86+.14*globalLevel;
+        fillRoundRect(x-barW/2,cy-h/2,barW,h,Math.min(barW/2,h/2));
       }
       ctx.globalAlpha=1;
     }
