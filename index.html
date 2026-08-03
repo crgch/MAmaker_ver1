@@ -107,7 +107,7 @@
   <header>
     <div class="logo">〽</div>
     <div class="head-copy">
-      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v3 · 이퀄라이저 7종</small></h1>
+      <h1>스챗 무가사 뮤직비디오 메이커 <small style="font-size:11px;color:#8a52ff">v4 · 이퀄라이저 7종 · 최대 90%</small></h1>
       <div class="sub">썸네일·가사 없이 배경 + 가로 이퀄라이저 + 선택 제목으로 만드는 16:9 뮤직비디오</div>
     </div>
     <span class="badge">INSTRUMENTAL MODE</span>
@@ -285,7 +285,7 @@
               <input type="range" id="eqGlow" min="0" max="40" value="8">
             </div>
           </div>
-          <div class="helper">곡의 실제 볼륨을 자동 추적합니다. 작은 구간에서는 기본선에 가깝게 내려오고, 큰 소리·비트에서만 크게 솟습니다. 움직임 대비를 높이면 강약 차이가 커지고, 복귀 속도를 높이면 작은 구간에서 더 빨리 선으로 돌아옵니다.</div>
+          <div class="helper">곡의 실제 볼륨을 자동 추적합니다. 작은 구간에서는 기본선에 가깝게 내려오고, 큰 소리·비트에서만 크게 솟습니다. 움직임 대비를 높이면 강약 차이가 커지고, 복귀 속도를 높이면 작은 구간에서 더 빨리 선으로 돌아옵니다. 실제 출력 높이는 설정값의 최대 90%로 제한됩니다.</div>
         </div>
       </section>
     </div>
@@ -408,6 +408,7 @@
   let eqTransientEnvelope=0;
   let eqPrevRawLevel=0;
   let eqLastFrameLevel=0;
+  const EQ_MAX_FILL=0.90; // 이퀄라이저가 설정 높이의 90%를 넘지 않도록 고정
 
   const QUALITY={
     '720_60':{w:1280,h:720,fps:60,vbps:12000000,abps:192000,label:'720p 60fps'},
@@ -720,7 +721,7 @@
     const transient=clamp(rise*(18+contrast*30),0,1);
     eqTransientEnvelope+=(transient-eqTransientEnvelope)*(transient>eqTransientEnvelope?.72:.22);
     eqPrevRawLevel=raw;
-    eqLastFrameLevel=clamp(eqLevelEnvelope*.86+eqTransientEnvelope*.30,0,1);
+    eqLastFrameLevel=clamp(eqLevelEnvelope*.86+eqTransientEnvelope*.30,0,EQ_MAX_FILL);
     return eqLastFrameLevel;
   }
 
@@ -735,12 +736,12 @@
       const threshold=.018+(1-sensitivity)*.035;
       const shaped=clamp((raw-threshold)/(0.52-threshold),0,1);
       const detailed=Math.pow(shaped,1.42-sensitivity*.42);
-      const target=staticFrame?0:clamp((detailed*.80+globalLevel*.20)*(.18+globalLevel*.82),0,1);
+      const target=staticFrame?0:clamp((detailed*.80+globalLevel*.20)*(.18+globalLevel*.82),0,EQ_MAX_FILL);
       const attack=.44+sensitivity*.32;
       const release=.06+returnSpeed*.52;
       smoothBands[i]+=(target-smoothBands[i])*(target>smoothBands[i]?attack:release);
       if(smoothBands[i]<.006)smoothBands[i]=0;
-      values.push(staticFrame?0:smoothBands[i]);
+      values.push(staticFrame?0:clamp(smoothBands[i],0,EQ_MAX_FILL));
     }
     return values;
   }
@@ -766,9 +767,9 @@
       const normalized=mirrored/Math.max(1,half-1);
       const centerWeight=Math.pow(1-normalized,.42);
       const v=bands[clamp(mirrored,0,half-1)]||0;
-      const movement=clamp(v*(.38+.92*centerWeight),0,1);
+      const movement=clamp(v*(.38+.92*centerWeight),0,EQ_MAX_FILL);
       // 전체 볼륨이 작아지면 모든 디자인이 확실하게 기본선으로 돌아갑니다.
-      return clamp(movement*Math.pow(globalLevel,.46)*1.62,0,1);
+      return clamp(movement*Math.pow(globalLevel,.46)*1.62,0,EQ_MAX_FILL);
     };
 
     const drawBaseline=(alpha=.40,lineWidth=Math.max(1,thick*.30))=>{
@@ -825,7 +826,7 @@
       ctx.lineWidth=Math.max(1,thick*.24);
       for(let i=0;i<count;i++){
         const x=cx-width/2+i*step,a=amplitudeAt(i);
-        const h=a*maxH*(1.15+(i%5===0?.32:0));
+        const h=Math.min(EQ_MAX_FILL*maxH,a*maxH*(1.15+(i%5===0?.32:0)));
         ctx.globalAlpha=.35+a*.65;
         ctx.beginPath();ctx.moveTo(x,cy-h);ctx.lineTo(x,cy+h);ctx.stroke();
       }
@@ -838,7 +839,7 @@
         const x=cx-width/2+i*step;
         const centered=Math.abs((i/(count-1))-.5)*2;
         const centerMask=Math.pow(1-centered,2.9);
-        const a=amplitudeAt(i)*(.18+centerMask*1.35);
+        const a=clamp(amplitudeAt(i)*(.18+centerMask*1.35),0,EQ_MAX_FILL);
         const heartbeat=Math.sin(i*.72+(audio.currentTime||0)*11.5);
         const y=cy-heartbeat*a*maxH*.90;
         if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
